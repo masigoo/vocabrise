@@ -1,65 +1,83 @@
 # VocabRise
 
-A responsive English vocabulary-learning app built with Next.js, TypeScript, and optional Supabase PostgreSQL vocabulary storage. This edition intentionally has **no login**; progress, target, and theme are stored in `localStorage` on the current browser/device.
+A responsive English vocabulary learning app built with Next.js, TypeScript, Supabase Auth, and PostgreSQL. Supports username/password accounts, per-user cloud progress, an admin activity dashboard, light/dark theme, and the watermark `© 2026 VocabRise | Igoo`.
 
 ## Features
-- Dashboard with live local date/time, daily target, words learned today, total learned, and collection progress.
-- Study sessions with V1/V2/V3, Indonesian meaning, example sentence, browser speech synthesis, Previous/Next, and learned checkbox.
-- Finish-session summary and review link.
-- Vocabulary search and filters; history includes the exact date/time a word was marked learned.
-- Editable daily target, light/dark theme, responsive desktop/mobile UI.
-- Offline bundled vocabulary fallback; optionally load the shared catalogue from Supabase.
+- Username + password registration/login (no email field in the app UI).
+- Individual cloud-saved learned words, timestamps, daily target, and theme.
+- Shared vocabulary catalogue with V1/V2/V3, Indonesian meaning, examples, and speech synthesis.
+- Previous/Next study flow, review/history, and editable daily goal.
+- Admin-only user list, learned-word counts, and latest activity log.
+- Row Level Security (RLS) separates each user's progress and settings.
 
-## Vocabulary seed
-`lib/vocabulary.json` currently contains **785 curated entries** (common verbs, nouns, and adjectives). Verbs have V1/V2/V3 where applicable; nouns/adjectives display `—` in the verb columns. The user request mentioned 1,500–2,000 words; this first bundled seed is smaller rather than padding the list with unverified translations. You can add more reviewed entries in the same JSON format and regenerate SQL using `python make_seed.py` after editing its source lists.
+## Important note about username login
+Supabase Auth natively authenticates using email/password. To present a username-only form, VocabRise maps each username to an internal synthetic address like `masigoo@users.vocabrise.app`. Users should use the same username to log in; they do not enter an email in the app. This setup does not support email-based password recovery. For a production public app, consider adding a real verified email or a trusted server-side username-auth flow.
 
-> Translation and example quality should be reviewed before using this as formal learning material. A few example sentences are intentionally simple templates and may not be idiomatic for every part of speech.
-
-## Run locally
+## 1. Run locally
 Requires Node.js 18.17+.
 
 ```bash
 npm install
+cp .env.example .env.local
 npm run dev
 ```
-Open http://localhost:3000.
 
-## Optional Supabase setup
-The app works without Supabase. Without env variables, it uses the bundled JSON catalogue and stores progress locally.
+On Windows, create `.env.local` by copying `.env.example` in File Explorer or VS Code if `cp` is unavailable.
 
+## 2. Configure Supabase
 1. Create a Supabase project.
-2. Open **SQL Editor** and run `supabase/schema.sql`.
-3. Run `supabase/seed.sql` (seeds the bundled vocabulary list).
-4. Copy `.env.example` to `.env.local`, then set:
+2. In **Project Settings → API** (or Connect), copy the Project URL and the **publishable/anon public key** into `.env.local`:
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
+NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_SUPABASE_PUBLISHABLE_OR_ANON_KEY
 ```
 
-Use only the Supabase **anon/public** key in a browser app; never put a service-role key in a `NEXT_PUBLIC_` variable. The RLS policy permits public read-only access to vocabulary. It intentionally provides no anonymous write policy.
+3. In Supabase **Authentication → Providers → Email**, turn **Confirm email OFF** for this username-only prototype. Otherwise signup may require email confirmation even though the UI does not collect a real email address.
+4. In **SQL Editor**, run the full `supabase/schema.sql`.
+5. Run `supabase/seed.sql` to seed the shared vocabulary catalogue. If it was already seeded, do not run it repeatedly unless you have checked duplicate-key errors; the seed inserts fixed IDs.
+6. Restart local Next.js after changing `.env.local`.
 
-## Deploy to Vercel
-1. Push this folder to a GitHub repository.
-2. In Vercel, choose **Add New → Project**, import the repository, and deploy.
-3. If using Supabase, add the two environment variables above under **Project Settings → Environment Variables** and redeploy.
-4. If no Supabase variables are configured, VocabRise still runs using the bundled data.
+Never put a `service_role` or secret API key in a `NEXT_PUBLIC_` variable, and never commit `.env.local`.
 
-## Data / privacy notes
-- The app does not implement Supabase Auth because this selected version is no-login.
-- Learned words, learned timestamps, daily target, and theme are stored in the current browser's local storage. They do not sync to another device or browser, and clearing browser data can remove them.
-- The date/time shown is the visitor's local device time.
-- To support cross-device syncing securely, add Supabase Auth and a `user_progress` table with per-user RLS policies in a later version.
+## 3. Create the first admin
+1. Start the app and register the account that should be the owner/admin (for example, username `masigoo`).
+2. In Supabase **SQL Editor**, run this query, replacing the username with the exact one you registered:
+
+```sql
+update public.profiles
+set role = 'admin'
+where username = 'masigoo';
+```
+
+3. Log out and log back in. The **Admin · Aktivitas** menu should appear.
+
+Only promote trusted accounts to admin. The client cannot change its own role; role changes are managed in Supabase SQL Editor.
+
+## 4. Admin activity dashboard
+The admin page shows registered usernames, roles, registration date, learned-word counts, last activity, and up to 150 recent activity logs. Events include login, start learning, learned/unlearned word, finishing a session, and clearing progress. It is not a hidden surveillance tool: users should be informed that their learning activity is recorded for app administration.
+
+## 5. Deploy to Vercel
+1. Commit and push the project to GitHub.
+2. Import the repository at https://vercel.com/new.
+3. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in Vercel Project Settings → Environment Variables.
+4. Deploy or redeploy.
+5. If the app is already deployed, pushing new commits to the connected GitHub branch will trigger a new deployment.
+
+## Data and privacy
+- Each account's progress and settings are stored in Supabase.
+- RLS policies restrict members to their own progress and settings. Admins can read user profiles, progress, and activity logs, but cannot modify another user's progress through the client.
+- Shared vocabulary is readable by all visitors; write policies for the public role are not enabled.
+- Since username-only authentication uses a synthetic address, there is no email-based password reset. Keep the initial admin credentials secure.
 
 ## Project structure
 ```text
-app/                 Next.js page and global styles
-components/           (reserved for future shared UI components)
-lib/types.ts          shared TypeScript types
-lib/supabase.ts       optional Supabase client
-lib/words.ts          remote catalogue + local fallback
-lib/vocabulary.json   bundled seed catalogue
-supabase/schema.sql   PostgreSQL schema and read-only RLS
-supabase/seed.sql     SQL insert seed
-.env.example          environment template
+app/                 Next.js app and global styles
+components/AuthScreen.tsx  username/password registration and login
+lib/supabase.ts      Supabase client
+lib/words.ts         remote catalogue + bundled fallback
+lib/vocabulary.json bundled vocabulary
+supabase/schema.sql  vocabulary, profiles, progress, settings, activity, RLS
+supabase/seed.sql    shared vocabulary seed
+.env.example         environment template
 ```
